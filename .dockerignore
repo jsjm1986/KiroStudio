@@ -6,6 +6,7 @@ admin-ui/node_modules
 admin-ui/dist
 # 本地运行时数据与私密文件（严禁进镜像）
 /config
+/config.bak-*
 /data
 config.json
 credentials.json
