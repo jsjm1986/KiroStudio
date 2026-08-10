@@ -363,8 +363,6 @@ export interface ConfigSnapshotResponse {
   hasApiKey: boolean
   /** Relay 频道专用密钥是否已配置；后端绝不回显原值。 */
   relayApiKeyConfigured: boolean
-  /** 拼车管理二次密码是否已配置；只返回布尔。 */
-  portalAdminPasswordConfigured: boolean
   callbackMode: string
   callbackBaseUrl?: string
   // 反代安全（批次3）
@@ -385,15 +383,6 @@ export interface ConfigSnapshotResponse {
   loginBackgroundR18?: boolean
   // 隐私：是否采集下游客户端指纹（设备/IP/系统/浏览器）。立即生效，无需重启。缺省视为开启。
   collectClientFingerprint?: boolean
-  // ---- 车队频道（Portal）。四项全部立即生效，无需重启 ----
-  // 总开关。关闭时 /portal 全部返回 404（连页面本身也 404，不确认功能存在）。
-  portalEnabled?: boolean
-  // 注册码**是否已配置**。后端只回布尔，绝不回显注册码本身——它是一把凭据。
-  portalInviteCodeConfigured?: boolean
-  // 是否强制 HTTPS 才允许上车/查看明文。
-  portalRequireHttps?: boolean
-  // 积分制开关。关闭时明文对已登录用户直接可见（不需要花积分上车）。
-  portalCreditsEnabled?: boolean
   configPath?: string
 }
 
@@ -472,13 +461,6 @@ export interface UpdateConfigRequest {
   loginBackgroundR18?: boolean
   // 隐私：采集下游客户端指纹开关（立即生效，无需重启）
   collectClientFingerprint?: boolean
-  // ---- 车队频道（Portal）。四项全部立即生效，无需重启 ----
-  portalEnabled?: boolean
-  // 注册码。提交空串 = **清除**（关闭自注册通道，已注册用户仍可登录）；
-  // 不提交此字段 = 不改动。与三把 API key 里的 importApiKey 同语义。
-  portalInviteCode?: string
-  portalRequireHttps?: boolean
-  portalCreditsEnabled?: boolean
 }
 
 // 更新服务端配置响应

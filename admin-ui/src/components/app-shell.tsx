@@ -8,7 +8,6 @@ import {
   BarChart3,
   Settings,
   Wrench,
-  Users,
   RadioTower,
   LogIn,
   LogOut,
@@ -34,13 +33,10 @@ const SettingsPage = lazy(() =>
 const OpsPage = lazy(() =>
   import('@/components/ops-page').then((m) => ({ default: m.OpsPage }))
 )
-const PortalPage = lazy(() =>
-  import('@/components/portal-page').then((m) => ({ default: m.PortalPage }))
-)
 const PushChannelPage = lazy(() =>
   import('@/components/push-channel-page').then((m) => ({ default: m.PushChannelPage }))
 )
-type Tab = 'overview' | 'credentials' | 'usage' | 'ops' | 'pushChannel' | 'portal' | 'settings'
+type Tab = 'overview' | 'credentials' | 'usage' | 'ops' | 'pushChannel' | 'settings'
 
 const NAV_ICONS: Record<Tab, React.ReactNode> = {
   overview: <LayoutDashboard className="h-4 w-4" />,
@@ -48,21 +44,19 @@ const NAV_ICONS: Record<Tab, React.ReactNode> = {
   usage: <BarChart3 className="h-4 w-4" />,
   ops: <Wrench className="h-4 w-4" />,
   pushChannel: <RadioTower className="h-4 w-4" />,
-  portal: <Users className="h-4 w-4" />,
   settings: <Settings className="h-4 w-4" />,
 }
 
 /**
- * 主菜单项。**不含 portal**——它自成一个分组（见 [`PORTAL_KEYS`]）。
+ * 主菜单项。**不含推送频道**——它自成一个分组（见 [`PUSH_KEYS`]）。
  *
- * 这几项操作的都是本网关自己的东西：凭据池、用量、配置。拼车管理管的是**另一套
- * 用户体系**（独立账号、独立鉴权、独立 SQLite 库），混在同一组里会让人以为它也是
- * 网关的一部分设置，点进去却是一张陌生的用户表。
+ * 这几项操作的都是本网关自己的东西：凭据池、用量、配置。推送频道走的是**另一条
+ * 入口**（卖方直推、独立密钥鉴权），混在同一组里会让人以为它也是网关的一部分设置。
  */
 const NAV_KEYS: Tab[] = ['overview', 'credentials', 'usage', 'ops', 'settings']
 
-/** 独立分组：凭据频道。排在主菜单（含「设置」）之后，有自己的分隔线与小标题。 */
-const PORTAL_KEYS: Tab[] = ['pushChannel', 'portal']
+/** 独立分组：推送频道。排在主菜单（含「设置」）之后，有自己的分隔线与小标题。 */
+const PUSH_KEYS: Tab[] = ['pushChannel']
 
 const TAB_TITLE_KEYS: Record<Tab, string> = {
   overview: 'appshell.nav.overview',
@@ -70,7 +64,6 @@ const TAB_TITLE_KEYS: Record<Tab, string> = {
   usage: 'appshell.nav.usage',
   ops: 'appshell.nav.ops',
   pushChannel: 'appshell.nav.pushChannel',
-  portal: 'appshell.nav.portal',
   settings: 'appshell.nav.settings',
 }
 
@@ -168,12 +161,12 @@ export function AppShell({ onLogout }: AppShellProps) {
           {/* Divider */}
           <div className="border-t border-[#2e2e2e] my-4" />
 
-          {/* 凭据频道：独立分组。管的是另一套用户体系，不与主菜单混排。 */}
+          {/* 推送频道：独立分组。走的是另一条入口，不与主菜单混排。 */}
           <p className="text-[11px] font-medium text-[#666] uppercase tracking-wider px-3 mb-2">
-            {t('appshell.section.portal')}
+            {t('appshell.section.push')}
           </p>
           <nav className="flex flex-col gap-0.5">
-            {PORTAL_KEYS.map((key) => (
+            {PUSH_KEYS.map((key) => (
               <NavButton
                 key={key}
                 tabKey={key}
@@ -231,7 +224,6 @@ export function AppShell({ onLogout }: AppShellProps) {
             {tab === 'credentials' && <Dashboard onLogout={onLogout} embedded />}
             {tab === 'ops' && <OpsPage />}
             {tab === 'pushChannel' && <PushChannelPage />}
-            {tab === 'portal' && <PortalPage />}
             {tab === 'settings' && <SettingsPage />}
           </Suspense>
         </div>

@@ -10,9 +10,8 @@
 //!    **允许被共享缓存存下来的**。共享缓存里存着一份用户私有数据，
 //!    下一个打同一个 URL 的人可能直接拿到它——跨用户串号。
 //!
-//! Portal 的 `/portal/api/keys` 在积分关闭或用户已上车时会下发**明文凭据**
-//! （见 [`crate::portal::http`] 的 `gate_plaintext`）。这条路径上的响应被任何
-//! 中间缓存留存都是不可接受的。
+//! 本网关有若干端点会在响应里带上凭据元数据甚至**明文 key**（推送回执、管理面
+//! 的凭据视图）。这类响应被任何中间缓存留存都是不可接受的。
 //!
 //! # 为什么做成中间件，而不是逐个 handler 加头
 //! 逐个加的写法有一个确定的失效模式：**日后新增端点必然漏**。漏掉不会有编译
@@ -41,13 +40,6 @@ use axum::{
 /// 放进跨用户共享的那份存储里。纵深防御，不是笔误。
 const NO_STORE: &str = "no-store, no-cache, must-revalidate, private";
 
-/// HTML 页面的缓存指令：可以存，但每次用前必须回源验证。
-///
-/// 页面本身不含用户数据（Portal 是一张静态单页，登录态全靠 JS 打 API 拿），
-/// 所以不必 `no-store`；但**必须**回源验证，否则发新版后浏览器会拿着旧 HTML
-/// 去打新 API——那种错法的表现是"页面看着正常，功能莫名其妙坏掉"，很难查。
-const NO_CACHE: &str = "no-cache, must-revalidate";
-
 /// 给响应打上「绝不缓存」，用于返回用户私有数据的 API。
 ///
 /// **覆盖而非补充**：用 `insert` 而不是 `append`。若 handler 自己设过一个更宽松
@@ -59,15 +51,6 @@ pub async fn no_store(request: Request, next: Next) -> Response {
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static(NO_STORE));
     h.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
     h.insert(header::EXPIRES, HeaderValue::from_static("0"));
-    response
-}
-
-/// 给响应打上「可存但必须回源验证」，用于 HTML 页面。
-pub async fn no_cache(request: Request, next: Next) -> Response {
-    let mut response = next.run(request).await;
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static(NO_CACHE));
     response
 }
 
@@ -164,41 +147,5 @@ mod tests {
             !values[0].contains("max-age=31536000"),
             "handler 的宽松指令残留了"
         );
-    }
-
-    #[tokio::test]
-    async fn no_cache_allows_storage_but_requires_revalidation() {
-        let app = Router::new()
-            .route("/", get(|| async { "<html>" }))
-            .layer(axum::middleware::from_fn(no_cache));
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .body(Body::empty())
-                    .expect("req"),
-            )
-            .await
-            .expect("res");
-
-        let cc = res
-            .headers()
-            .get(header::CACHE_CONTROL)
-            .and_then(|v| v.to_str().ok())
-            .expect("有 cache-control");
-        assert!(cc.contains("no-cache"), "必须要求回源验证");
-        assert!(cc.contains("must-revalidate"));
-        // 页面不含用户数据，不该用 no-store：那会让每次导航都整份重下，
-        // 白白放弃 304。这条断言把「两个策略别写混」钉住。
-        assert!(
-            !cc.contains("no-store"),
-            "HTML 页面用 no-store 是过度收紧，放弃了 304 的好处"
-        );
-    }
-
-    /// 两个策略不能是同一个字符串——否则上面那条"别写混"的断言会失去意义。
-    #[test]
-    fn the_two_policies_are_actually_different() {
-        assert_ne!(NO_STORE, NO_CACHE);
     }
 }

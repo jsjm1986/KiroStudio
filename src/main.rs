@@ -7,7 +7,6 @@ mod import_api;
 mod kiro;
 mod model;
 mod openai;
-mod portal;
 pub mod token;
 #[cfg(windows)]
 mod tray;
@@ -147,12 +146,12 @@ fn maybe_open_browser_on_first_run(_freshly_generated: bool, _host: &str, _port:
 /// `usageDataDir` 的默认字面量。只有等于它才做下面的重定向；用户改过就原样尊重。
 const DEFAULT_USAGE_DATA_DIR: &str = "data/usage";
 
-/// 解析用量/Portal 数据目录。
+/// 解析用量数据目录。
 ///
 /// # 为什么不能直接用相对 cwd 的 `"data/usage"`
 /// 容器里 cwd 是 `/app`，属主 root，而进程是非 root（Dockerfile 的 `USER app`，或
 /// compose 的 `user: "${KIROSTUDIO_UID}:${KIROSTUDIO_GID}"`）。于是 `/app/data` 建不出来，
-/// 后果是**用量统计静默降级 + Portal 库打不开**（生产实证 2026-08-07：
+/// 后果是**用量统计静默降级**（生产实证 2026-08-07：
 /// `Permission denied (os error 13)`，`usage/overview` 长期 503）。
 ///
 /// # 为什么修法是「相对 config 文件所在目录」而不是 chown
@@ -163,7 +162,7 @@ const DEFAULT_USAGE_DATA_DIR: &str = "data/usage";
 ///
 /// # 解析优先级
 /// 1. 用户改过 `usageDataDir`（含绝对路径）→ 原样尊重，绝不劫持。
-/// 2. 旧位置 `<cwd>/data/usage` 已存在 → **沿用，不搬迁**。存量库里有用户/积分/审计，
+/// 2. 旧位置 `<cwd>/data/usage` 已存在 → **沿用，不搬迁**。存量库里有历史用量明细，
 ///    静默换路径等于「数据一夜蒸发」。同 [`resolve_default_data_path`] 对 config.json
 ///    的处理（那里的注释：「旧版本落 exe 根目录的存量配置：沿用，不搬（防丢号）」）。
 /// 3. 知道 config 文件在哪 → `<config 所在目录>/data/usage`。容器里即 `/app/config/data/usage`。
@@ -580,18 +579,15 @@ async fn main() {
         .map(|k| !k.trim().is_empty())
         .unwrap_or(false);
 
-    // 上游额度缓存是网关能力，不应依赖 Admin API 是否配置。进程只创建这一份服务，
-    // Portal 与管理端共享它，避免两套缓存与两套后台刷新任务。
+    // 上游额度缓存是网关能力。进程只创建这一份服务，避免两套缓存与两套后台刷新任务。
     let balance_service = Arc::new(admin::AdminService::new(
         token_manager.clone(),
         endpoint_names.clone(),
     ));
 
     // A6：温和的周期性额度刷新（严格受控）。首轮等待完整间隔，逐号串行刷新。
-    // Admin 或 Portal 至少有一个启用时才需要后台刷新；两者都关闭时没有消费者，
-    // 继续周期请求上游只会平白增加风控压力。Portal 显式开启但未配置 adminApiKey
-    // 仍会启动，因此用户页的缓存与单号手动刷新能力不依赖管理 API。
-    if admin_key_valid || config.portal_enabled {
+    // 只有 Admin API 启用时才有消费者；未启用时继续周期请求上游只会平白增加风控压力。
+    if admin_key_valid {
         balance_service.respawn_balance_task();
     }
 
@@ -657,176 +653,6 @@ async fn main() {
         "/api/import",
         import_api::create_router(token_manager.clone()),
     );
-
-    // ============ Portal（多用户凭据查看页）============
-    //
-    // 路由**总是挂载**，由运行时镜像 portal::http::enabled() 决定行为：未启用时全部 404
-    // （连页面本身也 404，不确认这个功能存在）。这样 admin 改 portalEnabled 即时生效，
-    // 无需重启——与 importApiKey 的冷启用同一套思路。
-    //
-    // 库放在用量数据目录下（与 traces.db 同处），复用已有的目录创建与 Windows 数据隔离逻辑。
-    let app = {
-        portal::http::set_enabled(config.portal_enabled);
-        portal::http::set_require_https(config.portal_require_https);
-
-        // 车费规则播种。`set_pricing` 内部 sanitized()，写进去的一定是合理值，
-        // 所以下面日志里打印的是**纠正后**的实际生效值，而不是配置文件的原始字面量——
-        // 配了 base_count=0 的人应该看到「实际按 1 生效」，不是看到自己写的 0。
-        portal::http::set_credits_enabled(config.portal_credits_enabled);
-        portal::http::set_pricing(portal::credits::Pricing {
-            base_count: config.portal_key_base_count,
-            base_price: config.portal_key_base_price,
-            total_price: config.portal_key_total_price,
-            min_price: config.portal_key_min_price,
-            max_unlockers: config.portal_key_max_unlockers,
-        });
-
-        if config.portal_credits_enabled && !config.portal_enabled {
-            // 只开积分不开总开关 = 什么都不会发生。这种配置几乎总是误解，
-            // 不提示的话管理员会以为已经生效，直到有人反馈打不开页面。
-            tracing::warn!(
-                "portalCreditsEnabled=true 但 portalEnabled=false：Portal 整体未启用，积分规则不会生效。总开关是 portalEnabled"
-            );
-        }
-
-        // 注册码播种。空/未配置 → 不播种，portal_invite_matches 恒 false = 注册通道关闭。
-        match config.portal_invite_code.as_deref().map(str::trim) {
-            Some(code) if !code.is_empty() => {
-                if let Err(e) = common::auth_keys::set_portal_invite_code(code) {
-                    tracing::error!("portalInviteCode 播种失败，Portal 注册将全拒: {}", e);
-                }
-            }
-            _ => {
-                if config.portal_enabled {
-                    tracing::warn!(
-                        "Portal 已启用但未配置 portalInviteCode：注册通道关闭（已有用户仍可登录）"
-                    );
-                }
-            }
-        }
-
-        let portal_dir = resolve_data_dir_for(
-            &config.usage_data_dir,
-            Some(std::path::Path::new(&config_path)),
-        );
-        // 建目录失败就没必要再试开库了：错误原因在这里最具体（是权限还是路径不对），
-        // 留到 PortalDb::open 只会报出一个更含糊的 "unable to open database file"。
-        let portal_db = match std::fs::create_dir_all(&portal_dir) {
-            Err(e) => Err(format!("创建数据目录 {} 失败: {e}", portal_dir.display())),
-            Ok(()) => {
-                portal::PortalDb::open(&portal_dir.join("portal.db")).map_err(|e| format!("{e:#}"))
-            }
-        };
-
-        let portal_admin_auth = portal::PortalAdminAuth::new(
-            config.portal_admin_password_hash.clone(),
-            std::path::PathBuf::from(&config_path),
-            config.trust_forwarded_header,
-        );
-
-        match portal_db {
-            Ok(db) => {
-                let db = Arc::new(db);
-                let auth = Arc::new(portal::PortalAuth::new(db.clone()));
-
-                // 注册落盘钩子：此后 POST /api/import/keys 每推一个 key 就写一条元数据。
-                // 必须在挂载导入路由之后、服务开始收流量之前完成，否则期间的推送不会留痕。
-                portal::sink::register(db.clone());
-
-                // 过期会话清理：每 6 小时一次。不清会随登录次数无界堆积。
-                // 同时按上限裁剪审计表——它每次登录/每次明文外显都写一条，
-                // 公网暴露下更是撞库者的写放大目标。
-                let cleanup_db = db.clone();
-                tokio::spawn(async move {
-                    let mut ticker =
-                        tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
-                    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                    loop {
-                        ticker.tick().await;
-                        let now = chrono::Utc::now().timestamp_millis();
-                        match cleanup_db.purge_expired_sessions(now) {
-                            Ok(n) if n > 0 => tracing::info!("Portal 清理过期会话 {} 条", n),
-                            Ok(_) => {}
-                            Err(e) => tracing::warn!("Portal 清理过期会话失败: {:#}", e),
-                        }
-                        match cleanup_db.trim_audit(portal::MAX_AUDIT_ROWS) {
-                            Ok(n) if n > 0 => tracing::info!("Portal 裁剪审计 {} 条", n),
-                            Ok(_) => {}
-                            Err(e) => tracing::warn!("Portal 裁剪审计失败: {:#}", e),
-                        }
-                    }
-                });
-
-                if config.portal_enabled {
-                    tracing::info!("Portal 已启用: GET /portal");
-                } else {
-                    tracing::info!("Portal 未启用（portalEnabled=false），/portal 全部 404");
-                }
-
-                // 车费规则打印出来，管理员不必自己算那个两段式公式。
-                // 读的是运行时镜像（已 sanitized），所以这行就是实际生效的规则。
-                if config.portal_enabled && portal::http::credits_enabled() {
-                    let p = portal::http::pricing();
-                    let table: Vec<String> = (1..=p.max_unlockers)
-                        .map(|n| p.unit_price(n).to_string())
-                        .collect();
-                    tracing::info!(
-                        "车队积分已启用：前 {} 人各 {} 分，之后 {}/N 均摊，最多 {} 人上车（单价 N=1..{}：{}）",
-                        p.base_count,
-                        p.base_price,
-                        p.total_price,
-                        p.max_unlockers,
-                        p.max_unlockers,
-                        table.join(" ")
-                    );
-                } else if config.portal_enabled {
-                    tracing::info!(
-                        "车队积分未启用（portalCreditsEnabled=false），明文对已登录用户直接可见"
-                    );
-                }
-                // 用量句柄与热路径 sink 共享同一实例，故 portal 读到的是实时聚合，
-                // 不是另拉一份快照。usageEnabled=false 时为 None，用量列显示「未启用」。
-                let mut state = portal::http::PortalState::new(auth, token_manager.clone());
-                if let Some(handles) = &usage_handles {
-                    state = state.with_usage(handles.stats.clone());
-                }
-                state = state.with_balance_service(balance_service.clone());
-                // merge 而非 nest：create_router 用的是绝对路径 `/portal…`，
-                // 这样 `/portal` 与 `/portal/` 能注册成同一个 handler（nest 下 "/" 只匹配前者）。
-                //
-                // admin 侧管理接口挂 /api/admin/portal/*，自带 admin 鉴权中间件。
-                // **不受 portalEnabled 门控**：管理员需要能在开启功能之前先把账号建好，
-                // 否则「开了功能才能建号、建号期间功能已对公网敞开」是个没必要的窗口。
-                app.merge(portal::http::create_router(state)).nest(
-                    "/api/admin/portal",
-                    portal::admin_api::create_router(db, portal_admin_auth.clone()),
-                )
-            }
-            Err(reason) => {
-                // 开库失败不阻断主服务启动——网关的核心职责是转发对话，
-                // portal 是附加功能，它坏了不该让整个服务起不来。
-                tracing::error!("Portal 数据库不可用（Portal 已禁用）: {reason}");
-                tracing::error!(
-                    "  排查提示：数据目录需要对运行用户可写。容器部署把它放在 bind mount 的 \
-                     config 目录下（当前解析为 {}）；也可在配置里把 usageDataDir 显式指向一个可写路径。",
-                    portal_dir.display()
-                );
-                portal::http::set_enabled(false);
-
-                // **用户页 404，管理接口 503。** 两者故意不同：
-                //
-                // 用户页保持 404 是安全属性——不向公网确认「这里有个 portal，只是坏了」，
-                // 与 `feature_gate` 未启用时的行为一致（见 portal::http 模块文档）。
-                //
-                // 管理接口改 503 是可诊断性——它在 admin 鉴权之后，看到的人本就是管理员，
-                // 而 404 会让面板显示成「功能不存在」，把排查引向完全错误的方向。
-                app.nest(
-                    "/api/admin/portal",
-                    portal::admin_api::unavailable_router(reason, portal_admin_auth.clone()),
-                )
-            }
-        }
-    };
 
     // 启动服务器
     let addr = format!("{}:{}", config.host, config.port);
@@ -1002,8 +828,8 @@ static TRAY_QUIT_REQUESTED: std::sync::atomic::AtomicBool =
 /// 任一 sink 初始化失败都不致命——记录告警并退化（返回 None 或跳过该 sink），
 /// 保证统计侧故障绝不阻断主服务启动。
 fn init_usage_pipeline(config: &Config, config_path: &std::path::Path) -> Option<UsageHandles> {
-    // 目录解析口径见 [`resolve_data_dir_for`]。必须与 portal 库、以及 admin 侧的
-    // `AdminService::usage_data_dir()` 用同一个函数——三处若各自解析，表现是
+    // 目录解析口径见 [`resolve_data_dir_for`]。必须与 admin 侧的
+    // `AdminService::usage_data_dir()` 用同一个函数——两处若各自解析，表现是
     // 「存储统计/清理对着一个空目录操作，而真实数据在别处」。
     let data_dir = resolve_data_dir_for(&config.usage_data_dir, Some(config_path));
     if let Err(e) = std::fs::create_dir_all(&data_dir) {
@@ -1116,8 +942,8 @@ mod data_dir_tests {
 
     /// **旧位置已存在则沿用，不搬迁。**
     ///
-    /// 存量 `portal.db` 里有用户、余额、审计。静默换路径的表现是「数据一夜蒸发」——
-    /// 服务照常启动、库自动新建，没有任何报错，等用户反馈登录不上才发现。
+    /// 存量 `traces.db` 里有历史用量明细。静默换路径的表现是「数据一夜蒸发」——
+    /// 服务照常启动、库自动新建，没有任何报错，等用户发现统计对不上才察觉。
     ///
     /// 与上一条唯一的差别就是 `legacy_exists`，这样"旧位置优先"是被真正验证的，
     /// 而不是靠环境凑巧。
@@ -1128,7 +954,7 @@ mod data_dir_tests {
         assert_eq!(
             got,
             Path::new(DEFAULT_USAGE_DATA_DIR),
-            "旧位置已存在时必须沿用；搬迁会让存量用户/积分/审计凭空消失"
+            "旧位置已存在时必须沿用；搬迁会让存量用量明细凭空消失"
         );
     }
 
@@ -1184,7 +1010,7 @@ mod data_dir_tests {
     ///
     /// 建目录是调用方的事。若哪天有人把 `create_dir_all` 挪进解析函数，
     /// 第一次调用会走「config 同级」、第二次因目录已存在而走「旧位置」——
-    /// 两个调用点（用量管道与 portal）于是解析到不同目录，各写各的库。
+    /// 两个调用点（用量管道与 admin 存储统计）于是解析到不同目录，各写各的库。
     #[test]
     fn decision_is_pure_and_creates_nothing() {
         let cfg = PathBuf::from("/app/config/config.json");
@@ -1197,7 +1023,7 @@ mod data_dir_tests {
         );
     }
 
-    /// 三个调用点（用量管道 / portal / admin 存储统计）必须解析到**同一个**目录。
+    /// 两个调用点（用量管道 / admin 存储统计）必须解析到**同一个**目录。
     ///
     /// 【为何这条最要紧】`admin::service` 原先直接用原始相对值，与真实落盘位置
     /// 不一致：生产 `storage/stats` 报 `path: "data/usage"` 而库实际在别处。
@@ -1207,10 +1033,8 @@ mod data_dir_tests {
         let cfg = PathBuf::from("/app/config/config.json");
         for legacy in [false, true] {
             let usage = decide_data_dir(DEFAULT_USAGE_DATA_DIR, Some(&cfg), legacy);
-            let portal = decide_data_dir(DEFAULT_USAGE_DATA_DIR, Some(&cfg), legacy);
             let admin = decide_data_dir(DEFAULT_USAGE_DATA_DIR, Some(&cfg), legacy);
-            assert_eq!(usage, portal, "用量管道与 portal 解析不一致");
-            assert_eq!(portal, admin, "portal 与 admin 存储统计解析不一致");
+            assert_eq!(usage, admin, "用量管道与 admin 存储统计解析不一致");
         }
     }
 
