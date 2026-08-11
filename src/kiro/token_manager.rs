@@ -6550,7 +6550,7 @@ mod tests {
 
     /// 新增凭据必须自动带上添加时间。
     ///
-    /// 这一列是 portal 用户页直接显示的东西，为空就是空白格。补写点只有
+    /// 这一列会随凭据快照下发给管理面，为空就是空白格。补写点只有
     /// `add_credential` 一处，所以这条测试同时守着「所有入口都经过那个收口」。
     #[tokio::test]
     async fn add_credential_stamps_added_at() {

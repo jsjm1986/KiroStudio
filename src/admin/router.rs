@@ -168,9 +168,8 @@ pub fn create_admin_router(state: AdminState) -> Router {
         // 就允许进共享缓存。
         //
         // 用 `layer` 而非 `route_layer`：本树在 main 里是被 `nest("/api/admin", …)` 挂载的，
-        // nest 的作用域已经把它限死在该前缀下，不存在 portal 那边「route_layer 才能避免
-        // 波及全站 fallback」的问题。这里用 layer 反而更严——连本树自己的 404/405
-        // 响应也会带上头。
+        // nest 的作用域已经把它限死在该前缀下，不会波及全站 fallback。这里用 layer
+        // 反而更严——连本树自己的 404/405 响应也会带上头。
         //
         // 对 SSE 端点（`/stream/live`、`/logs/stream`）的影响：它们原本自设 `no-cache`，
         // 这里会覆盖成 `no-store`。对 SSE 来说两者都正确（都禁止代理缓冲复用），

@@ -38,8 +38,8 @@ impl AdminState {
 
     /// 使用已有的共享服务创建 Admin 状态。
     ///
-    /// Portal 的上游额度展示也依赖同一份余额缓存，因此主程序会先创建唯一的
-    /// [`AdminService`]，再分别注入 Admin 与 Portal，避免两套缓存和后台刷新任务。
+    /// 允许调用方复用已构造好的 [`AdminService`]，避免出现两套余额缓存和两个
+    /// 后台刷新任务。
     pub fn from_shared(admin_api_key: impl Into<String>, service: Arc<AdminService>) -> Self {
         if let Err(e) = crate::common::auth_keys::set_admin_key(&admin_api_key.into()) {
             // 调用方（main.rs）已在挂载前判过非空，走到这里说明校验被绕过。

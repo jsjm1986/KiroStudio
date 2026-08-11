@@ -268,23 +268,6 @@ async fn import_keys(
     // 面板记**完整 key**（运维需要直接取用/比对），仅受 admin 鉴权保护、不落盘、重启即失；
     // 回给推送方的 `ImportItemResponse.key` 仍是打码值（契约明确「不依赖完整值」）。
     record_import_stats(&results, started.elapsed().as_millis() as u64, None);
-    // Portal 侧**持久**落盘（只存元数据，不存明文；未启用 portal 时是 no-op）。
-    // 与上面的 import_stats 并存而非替代：那个是进程级、重启归零、只留最近 20 次的运营计数；
-    // 这个是按 key 的持久视图，供 portal 用户查历史。两者口径不同，缺一不可。
-    {
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        for item in &results {
-            crate::portal::sink::record_import(
-                &item.plain_key,
-                item.credential_id,
-                item.region.as_deref(),
-                item.endpoint.as_deref(),
-                item.ok,
-                item.error.as_deref(),
-                now_ms,
-            );
-        }
-    }
     Json(ImportResponse {
         success: failed == 0,
         total: results.len(),
@@ -482,15 +465,6 @@ async fn import_push(
                 .into_response();
         }
     }
-    crate::portal::sink::record_import(
-        &result.plain_key,
-        result.credential_id,
-        result.region.as_deref(),
-        result.endpoint.as_deref(),
-        result.ok,
-        result.error.as_deref(),
-        chrono::Utc::now().timestamp_millis(),
-    );
     if result.ok {
         Json(serde_json::json!({
             "ok": true,
