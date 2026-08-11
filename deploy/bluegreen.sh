@@ -8,7 +8,9 @@ LIVE_BIN="/home/dwgx_user/KiroStudio/kirostudio"
 LIVE_CFG="/home/dwgx_user/KiroStudio/config/config.json"
 LIVE_CREDS="/home/dwgx_user/KiroStudio/config/credentials.json"
 NEW_BIN="/tmp/kirostudio-new"
-ADMIN_KEY="sk-dwgx-admin"
+# 管理面板密钥从环境变量取，不写默认值：这里曾硬编码一个真实形态的 key，
+# 公开仓里放着容易被人当成出厂默认值去试。用法：KIROSTUDIO_ADMIN_KEY=xxx bash bluegreen.sh
+ADMIN_KEY="${KIROSTUDIO_ADMIN_KEY:-}"
 
 if [ "$STAGE" = "verify" ]; then
   echo "=== 蓝绿阶段1：临时端口 $TMP_PORT 验证新二进制(不碰主服务 8990) ==="
@@ -28,11 +30,21 @@ if [ "$STAGE" = "verify" ]; then
   # 健康检查
   fail=0
   echo "--- 健康检查 ---"
-  for probe in \
-    "models:GET:/v1/models:x-api-key:sk-test" \
-    "admin:GET:/admin::" \
-    "creds:GET:/api/admin/credentials:x-api-key:$ADMIN_KEY" \
-    "trash:GET:/api/admin/credentials/trash:x-api-key:$ADMIN_KEY"; do
+  # 两条 Admin API 探针需要真实密钥。没给 KIROSTUDIO_ADMIN_KEY 就**跳过**而不是带空 header 去打：
+  # 空 key 必得 401，而下面把 401 也算通过，那两条就成了永远绿的假探针。
+  probes=(
+    "models:GET:/v1/models:x-api-key:sk-test"
+    "admin:GET:/admin::"
+  )
+  if [ -n "$ADMIN_KEY" ]; then
+    probes+=(
+      "creds:GET:/api/admin/credentials:x-api-key:$ADMIN_KEY"
+      "trash:GET:/api/admin/credentials/trash:x-api-key:$ADMIN_KEY"
+    )
+  else
+    echo "  - 跳过 creds/trash 探针（未设 KIROSTUDIO_ADMIN_KEY）"
+  fi
+  for probe in "${probes[@]}"; do
     IFS=: read name method path hk hv <<< "$probe"
     if [ -n "$hk" ]; then
       code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "$hk: $hv" "http://localhost:$TMP_PORT$path")
