@@ -65,7 +65,7 @@ KiroStudio 用 Rust / Axum 编写，接收标准 **Anthropic Messages API** 请�
 已有配置不覆盖（幂等）。全程无需手改配置文件。
 
 ```bash
-git clone https://github.com/dwgx/KiroStudio.git && cd KiroStudio
+git clone https://github.com/jsjm1986/KiroStudio.git && cd KiroStudio
 
 # 路径 A：Docker（需 Docker + Compose，跨平台）
 bash install.sh
@@ -89,7 +89,7 @@ Linux 装 systemd 服务（含 OTA 崩溃自动回滚守卫），macOS 装 launc
 ### Docker（推荐）
 
 ```bash
-git clone https://github.com/dwgx/KiroStudio.git
+git clone https://github.com/jsjm1986/KiroStudio.git
 cd KiroStudio
 
 # 准备配置：复制示例并改成你自己的 key
@@ -105,7 +105,7 @@ docker compose up -d
 
 ### 预编译二进制（GitHub Release）
 
-从 [Releases](https://github.com/dwgx/KiroStudio/releases) 下载对应平台的二进制（纯 rustls、无运行时依赖）。资产命名按 `OS-架构`：
+从 [Releases](https://github.com/jsjm1986/KiroStudio/releases) 下载对应平台的二进制（纯 rustls、无运行时依赖）。资产命名按 `OS-架构`：
 
 | 平台 | 资产名 |
 |---|---|
@@ -118,8 +118,8 @@ docker compose up -d
 
 ```bash
 # 下载并校验（以 Linux x86_64 为例；macOS 换成 kirostudio-macos-aarch64 并用 shasum -a 256 -c）
-curl -LO https://github.com/dwgx/KiroStudio/releases/latest/download/kirostudio-linux-x86_64
-curl -LO https://github.com/dwgx/KiroStudio/releases/latest/download/kirostudio-linux-x86_64.sha256
+curl -LO https://github.com/jsjm1986/KiroStudio/releases/latest/download/kirostudio-linux-x86_64
+curl -LO https://github.com/jsjm1986/KiroStudio/releases/latest/download/kirostudio-linux-x86_64.sha256
 sha256sum -c kirostudio-linux-x86_64.sha256
 chmod +x kirostudio-linux-x86_64
 

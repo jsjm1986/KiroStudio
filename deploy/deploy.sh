@@ -4,7 +4,7 @@
 # 用法：bash deploy.sh [tag]    tag 默认 latest
 set -euo pipefail
 
-REPO="dwgx/KiroStudio"
+REPO="jsjm1986/KiroStudio"
 BIN="/home/dwgx_user/KiroStudio/kirostudio"
 SVC="kirostudio"
 HEALTH="http://127.0.0.1:8990/admin"
