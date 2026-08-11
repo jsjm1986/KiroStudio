@@ -18,7 +18,7 @@
 # ============================================================================
 set -euo pipefail
 
-REPO="dwgx/KiroStudio"
+REPO="jsjm1986/KiroStudio"
 # ASSET / SHA_CMD 在下面「平台/架构检查」里按 OS×ARCH 推导（不在此硬编码，
 # 否则 macOS / arm64 会静默下到 Linux x86_64 的包）。
 

@@ -24,12 +24,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
-/// 上游仓库（owner/repo）。发布产物见 .github/workflows/release.yml，每个平台一份二进制 + 同名 .sha256：
+/// 本仓库（owner/repo）——OTA 检查与下载都走这里，必须指向**本仓库自己的 Releases**，
+/// 指向 fork 上游等于让用户的自更新去装别人发的二进制（版本号与本地代码不对应，且不受本仓库控制）。
+/// 发布产物见 .github/workflows/release.yml，每个平台一份二进制 + 同名 .sha256：
 /// `kirostudio-linux-x86_64` / `kirostudio-linux-aarch64` /
 /// `kirostudio-macos-x86_64` / `kirostudio-macos-aarch64` / `kirostudio-windows-x86_64.exe`。
 /// ⚠️ 这份清单必须与 `ASSET_BIN` 的 cfg 分支、release.yml 的产出**三方保持一致**，
 /// 少一个平台就意味着该平台的用户点 OTA 会 404（好）或下到错误资产（灾难）。
-const GITHUB_REPO: &str = "dwgx/KiroStudio";
+const GITHUB_REPO: &str = "jsjm1986/KiroStudio";
 
 /// 本平台对应的发布二进制资产名（按目标平台编译期选择）。
 ///

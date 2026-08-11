@@ -83,4 +83,4 @@ refactor(kiro): 抽取协议转换公共逻辑
 
 ## 报告问题
 
-发现缺陷或有功能建议，请通过 [Issues](https://github.com/dwgx/KiroStudio/issues) 提交，并使用对应模板尽量提供复现步骤、环境信息与预期行为。安全类问题请勿公开披露，可通过私下渠道联系维护者。
+发现缺陷或有功能建议，请通过 [Issues](https://github.com/jsjm1986/KiroStudio/issues) 提交，并使用对应模板尽量提供复现步骤、环境信息与预期行为。安全类问题请勿公开披露，可通过私下渠道联系维护者。
